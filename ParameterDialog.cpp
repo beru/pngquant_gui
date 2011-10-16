@@ -17,7 +17,7 @@ LRESULT CParameterDialog::OnInitDialog(UINT uMsg, WPARAM wParam, LPARAM lParam, 
 {
 	DoDataExchange();
 	
-	m_wndSpinColor.SetRange(2, 255);
+	m_wndSpinColor.SetRange(2, 256);
 	m_wndSpinSpeed.SetRange(1, 10);
 	
 	m_wndSpinColor.SetPos(16);
