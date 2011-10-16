@@ -43,6 +43,9 @@ LRESULT CMainFrame::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/
 	m_pView = new CDispView();
 	m_pParameterDialog = new CParameterDialog();
 	m_pParameterDialog->Create(m_hWnd, rcDefault);
+	CRect rec;
+	GetWindowRect(rec);
+	m_pParameterDialog->CenterWindow(m_hWnd);
 	m_pParameterDialog->m_onParameterChangeDelegate.bind(this, &CMainFrame::onParameterChange);
 	
 	// create command bar window
@@ -74,6 +77,7 @@ LRESULT CMainFrame::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/
 	pLoop->AddMessageFilter(this);
 	pLoop->AddIdleHandler(this);
 
+	::DragAcceptFiles(m_hWnd, TRUE);
 	return 0;
 }
 
@@ -130,28 +134,34 @@ LRESULT CMainFrame::OnAppAbout(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCt
 	return 0;
 }
 
+void CMainFrame::openFile(LPCTSTR fileName)
+{
+	FILE* f = _tfopen(fileName, _T("rb"));
+	if (!f) {
+		return;
+	}
+	size_t sz = GetFileSize(f);
+	g_inData.resize(sz);
+	fread(&g_inData[0], 1, sz, f);
+	fclose(f);
+	
+	uint8_t* inp;
+	MemoryFile mf(&g_inData[0], g_inData.size());
+	if (ReadImageInfo_png(mf, g_info)) {
+		g_inImage.resize(g_info.width * g_info.height * 4);
+		g_outImage.resize(g_info.width * g_info.height * 4);
+		inp = &g_inImage[0];
+		ReadImage_png(mf, g_info, inp, g_info.width*4, 0);
+		Exec_pngquant(m_pParameterDialog->GetParameter());
+		m_pView->Render();
+	}
+}
+
 LRESULT CMainFrame::OnFileOpen(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
 	CFileDialog dlg(TRUE, _T("png"), 0, 0, _T("PNGファイル(*.png)\0*.png\0すべてのファイル(*.*)\0*.*\0\0"));
 	if (dlg.DoModal() == IDOK) {
-		FILE* f = _tfopen(dlg.m_szFileName, _T("rb"));
-		if (f) {
-			size_t sz = GetFileSize(f);
-			g_inData.resize(sz);
-			fread(&g_inData[0], 1, sz, f);
-			fclose(f);
-			
-			uint8_t* inp;
-			MemoryFile f(&g_inData[0], g_inData.size());
-			if (ReadImageInfo_png(f, g_info)) {
-				g_inImage.resize(g_info.width * g_info.height * 4);
-				g_outImage.resize(g_info.width * g_info.height * 4);
-				inp = &g_inImage[0];
-				ReadImage_png(f, g_info, inp, g_info.width*4, 0);
-				Exec_pngquant(m_pParameterDialog->GetParameter());
-				m_pView->Render();
-			}
-		}
+		openFile(dlg.m_szFileName);
 	}
 
 	return 0;
@@ -172,9 +182,9 @@ void CMainFrame::Exec_pngquant(Parameter p)
 	std::vector<uint8_t> outData;
 	if (ExecProcess(cmdLine, g_inData, outData)) {
 		if (outData.size()) {
-			MemoryFile f(&outData[0], outData.size());
-			if (ReadImageInfo_png(f, g_info)) {
-				if (ReadImage_png(f, g_info, outp, g_info.width*4, 0)) {
+			MemoryFile mf(&outData[0], outData.size());
+			if (ReadImageInfo_png(mf, g_info)) {
+				if (ReadImage_png(mf, g_info, outp, g_info.width*4, 0)) {
 					int hoge = 1;
 				}
 			}
@@ -187,6 +197,7 @@ void CMainFrame::onParameterChange(Parameter p)
 	if (g_outImage.size() == 0) {
 		return;
 	}
+	CWaitCursor waiter;
 	Exec_pngquant(p);
 	m_pView->Render();
 }
@@ -200,4 +211,17 @@ LRESULT CMainFrame::OnViewBackgroundcolor(WORD /*wNotifyCode*/, WORD /*wID*/, HW
 	}
 
 	return 0;
+}
+
+LRESULT CMainFrame::OnDropFiles(HDROP hDrop)
+{
+	UINT nSize = ::DragQueryFile(hDrop, -1, NULL, 0);
+	if (nSize) {
+		UINT len = ::DragQueryFile(hDrop, 0, NULL, 0);
+		std::vector<TCHAR> buff(len+1);
+		::DragQueryFile(hDrop, 0, &buff[0], buff.size());
+		openFile(&buff[0]);
+	}
+	::DragFinish(hDrop);
+	return	0;
 }
